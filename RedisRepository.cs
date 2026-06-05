@@ -13,4 +13,7 @@ public class RedisRepository : IPlanRepository
 
     public Task<bool> ExistsAsync(string objectId) =>
         _db.KeyExistsAsync($"plan:{objectId}");
+    
+    public Task SaveBlobAsync(string objectId, string json) =>
+        _db.StringSetAsync($"plan:{objectId}", json);
 }
