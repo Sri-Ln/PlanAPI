@@ -1,0 +1,24 @@
+# Build output
+bin/
+obj/
+
+# IDE
+.idea/
+.vs/
+*.user
+*.suo
+
+# Local app settings
+appsettings.Development.json
+appsettings.*.Local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local tooling / notes (not part of the project deliverable)
+.claude/
+PROJECT_SPEC.md
