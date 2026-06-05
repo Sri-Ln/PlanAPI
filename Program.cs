@@ -2,6 +2,9 @@ using PlanApi;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 using System.Text.Json.Nodes;
+using Json.Schema;
+using System.Linq;
+using System.Text.Json;
 
 // Top-level statements: this file IS the program (no Main method needed).
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +16,9 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(
         builder.Configuration.GetConnectionString("Redis")
         ?? throw new InvalidOperationException("ConnectionStrings:Redis is not configured")));
+
+builder.Services.AddSingleton(JsonSchema.FromFile(
+    Path.Combine(builder.Environment.ContentRootPath, "schema.json")));
 
 builder.Services.AddSingleton<IPlanRepository, RedisRepository>();
 
@@ -27,11 +33,24 @@ if (app.Environment.IsDevelopment())
 }
 
 
-app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo) =>
+app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo, JsonSchema schema) =>
 {
-    var objectId = body["objectId"]?.GetValue<string>();
-    if (string.IsNullOrEmpty(objectId))
-        return Results.BadRequest(new { error = "objectId is required" });
+    var result = schema.Evaluate(body.Deserialize<JsonElement>(), new EvaluationOptions { OutputFormat = OutputFormat.List });
+    if (!result.IsValid)
+    {
+        var errors = result.Details
+            .Where(d => d.Errors is not null && d.Errors.Count > 0)
+            .SelectMany(d => d.Errors!.Select(e => new
+            {
+                path = d.InstanceLocation.ToString(),
+                keyword = e.Key,
+                message = e.Value
+            }))
+            .ToList();
+        return Results.BadRequest(new { errors });
+    }
+
+    var objectId = body["objectId"]!.GetValue<string>();
 
     if (await repo.ExistsAsync(objectId))
         return Results.Conflict(new { error = $"plan '{objectId}' already exists" });
