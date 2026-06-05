@@ -1,3 +1,4 @@
+using PlanApi;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 
@@ -11,6 +12,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(
         builder.Configuration.GetConnectionString("Redis")
         ?? throw new InvalidOperationException("ConnectionStrings:Redis is not configured")));
+
+builder.Services.AddSingleton<IPlanRepository, RedisRepository>();
 
 var app = builder.Build();
 
