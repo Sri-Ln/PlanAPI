@@ -74,6 +74,13 @@ app.MapGet("/v1/plan/{objectId}", async (string objectId, IPlanRepository repo, 
     return Results.Ok(plan);
 });
 
+app.MapDelete("/v1/plan/{objectId}", async (string objectId, IPlanRepository repo) =>
+{
+    var deleted = await repo.DeleteAsync(objectId);
+    return deleted ? Results.NoContent() : Results.NotFound();
+});
+
+
 app.UseHttpsRedirection();
 
 app.Run();
