@@ -55,7 +55,7 @@ app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo, JsonSchema s
     if (await repo.ExistsAsync(objectId))
         return Results.Conflict(new { error = $"plan '{objectId}' already exists" });
 
-    await repo.SaveBlobAsync(objectId, body.ToJsonString());
+    await repo.SaveFlattenedAsync(PlanFlattener.Decompose(body));
     return Results.Created($"/v1/plan/{objectId}", null);
 });
 

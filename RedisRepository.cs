@@ -1,4 +1,5 @@
 ﻿using StackExchange.Redis;
+using System.Text.Json.Nodes;
 
 namespace PlanApi;
 
@@ -14,6 +15,9 @@ public class RedisRepository : IPlanRepository
     public Task<bool> ExistsAsync(string objectId) =>
         _db.KeyExistsAsync($"plan:{objectId}");
     
-    public Task SaveBlobAsync(string objectId, string json) =>
-        _db.StringSetAsync($"plan:{objectId}", json);
+    public async Task SaveFlattenedAsync(IReadOnlyDictionary<string, JsonObject> records)
+    {
+        var writes = records.Select(kvp => _db.StringSetAsync(kvp.Key, kvp.Value.ToJsonString()));
+        await Task.WhenAll(writes);
+    }
 }
