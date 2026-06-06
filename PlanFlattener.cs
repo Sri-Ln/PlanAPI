@@ -89,6 +89,36 @@ public static class PlanFlattener
         return result;
     }
 
+    // Walk the same ref graph as AssembleAsync but only collect keys.
+    public static async Task<IReadOnlyList<string>> CollectKeysAsync(string key, Func<string, Task<string?>> read)
+    {
+        var keys = new List<string>();
+        await CollectInto(key, read, keys);
+        return keys;
+    }
+
+    private static async Task CollectInto(string key, Func<string, Task<string?>> read, List<string> sink)
+    {
+        var json = await read(key);
+        if (json is null) return;
+
+        sink.Add(key);
+        var flat = (JsonObject)JsonNode.Parse(json)!;
+
+        foreach (var (_, value) in flat)
+        {
+            if (value is JsonValue jv && IsRefString(jv, out var refKey))
+            {
+                await CollectInto(refKey, read, sink);
+            }
+            else if (value is JsonArray arr && arr.Count > 0 && arr[0] is JsonValue first && IsRefString(first, out _))
+            {
+                foreach (var item in arr)
+                    await CollectInto(((JsonValue)item!).GetValue<string>(), read, sink);
+            }
+        }
+    }
+
     private static bool IsRefString(JsonValue value, out string refKey)
     {
         refKey = "";

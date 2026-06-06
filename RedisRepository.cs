@@ -29,4 +29,15 @@ public class RedisRepository : IPlanRepository
         var value = await _db.StringGetAsync(key);
         return value.HasValue ? value.ToString() : null;
     }
+    
+    public async Task<bool> DeleteAsync(string objectId)
+    {
+        var rootKey = $"plan:{objectId}";
+        var keys = await PlanFlattener.CollectKeysAsync(rootKey, ReadRawAsync);
+        if (keys.Count == 0) return false;
+
+        var redisKeys = keys.Select(k => (RedisKey)k).ToArray();
+        await _db.KeyDeleteAsync(redisKeys);
+        return true;
+    }
 }
