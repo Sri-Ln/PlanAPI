@@ -26,9 +26,50 @@ Course project for BigData Indexing (Northeastern), Demo 1.
 - **ETag** is `SHA-256` of the canonical (sorted-key) reassembled JSON; returned on POST and GET; `If-None-Match` returns 304.
 - **Flattened storage**: the document is decomposed into one Redis record per nested object (key `{objectType}:{objectId}`); parents hold reference strings to children. Reassembled on GET.
 
-## Running locally
+## Quick start (no clone required)
 
-Start Redis:
+Run the published version without installing .NET or cloning the repo. Save the following as `compose.yml` in any empty folder:
+
+```yaml
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  api:
+    image: ghcr.io/sri-ln/planapi:${VERSION:-v0.1.0}
+    ports: ["8080:8080"]
+    environment:
+      ConnectionStrings__Redis: "redis:6379"
+    depends_on: [redis]
+```
+
+Then:
+
+```bash
+docker compose up
+```
+
+API at <http://localhost:8080>. Defaults to `v0.1.0`. Override with `VERSION=v0.2.0 docker compose up`.
+
+If you've already cloned this repo, the same file ships as `docker-compose.ghcr.yml`:
+
+```bash
+docker compose -f docker-compose.ghcr.yml up
+```
+
+## Run from source with Docker
+
+Builds the API image from your local source tree and runs it alongside Redis:
+
+```bash
+docker compose up --build
+```
+
+API at <http://localhost:8080>.
+
+## Run from source with .NET
+
+For active development against the .NET toolchain. Start Redis:
 
 ```bash
 docker run --rm -p 6379:6379 redis
@@ -39,25 +80,6 @@ Run the API:
 ```bash
 dotnet run
 ```
-
-## Running with Docker Compose
-
-Brings up Redis and the API together. The API listens on `http://localhost:8080`.
-
-```bash
-docker compose up --build
-```
-
-## Running the published image
-
-After a tagged release, a Linux container image is published to GitHub Container Registry:
-
-```bash
-docker run -p 8080:8080 -e ConnectionStrings__Redis=host.docker.internal:6379 \
-  ghcr.io/sri-ln/planapi:latest
-```
-
-(Requires a reachable Redis on the host; for a self-contained run, prefer `docker compose up`.)
 
 ## Data model
 
