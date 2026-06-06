@@ -1,9 +1,16 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace PlanApi;
 
 public static class PlanFlattener
 {
+    // TODO: derive from schema instead of hardcoding (Demo 2 will add new object types)
+    private static readonly HashSet<string> KnownObjectTypes = new()
+    {
+        "plan", "planservice", "service", "membercostshare"
+    };
+
     // Walk the tree, return one flattened JsonObject per nested object.
     public static IReadOnlyDictionary<string, JsonObject> Decompose(JsonNode root)
     {
@@ -47,4 +54,50 @@ public static class PlanFlattener
 
     private static bool IsDecomposable(JsonObject obj) =>
         obj["objectType"] is not null && obj["objectId"] is not null;
+
+    // Read `key` via `read`, then inline every ref string back into a nested object.
+    public static async Task<JsonObject?> AssembleAsync(string key, Func<string, Task<string?>> read)
+    {
+        var json = await read(key);
+        if (json is null) return null;
+
+        var flat = (JsonObject)JsonNode.Parse(json)!;
+        var result = new JsonObject();
+
+        foreach (var (name, value) in flat)
+        {
+            if (value is JsonValue jv && IsRefString(jv, out var refKey))
+            {
+                result[name] = await AssembleAsync(refKey, read);
+            }
+            else if (value is JsonArray arr && arr.Count > 0 && arr[0] is JsonValue first && IsRefString(first, out _))
+            {
+                var inlined = new JsonArray();
+                foreach (var item in arr)
+                {
+                    var itemKey = ((JsonValue)item!).GetValue<string>();
+                    inlined.Add(await AssembleAsync(itemKey, read));
+                }
+                result[name] = inlined;
+            }
+            else
+            {
+                result[name] = value?.DeepClone();
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsRefString(JsonValue value, out string refKey)
+    {
+        refKey = "";
+        if (value.GetValueKind() != JsonValueKind.String) return false;
+        var s = value.GetValue<string>();
+        var colon = s.IndexOf(':');
+        if (colon <= 0 || colon >= s.Length - 1) return false;
+        if (!KnownObjectTypes.Contains(s[..colon])) return false;
+        refKey = s;
+        return true;
+    }
 }
