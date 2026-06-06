@@ -36,7 +36,7 @@ services:
     image: redis:7-alpine
     ports: ["6379:6379"]
   api:
-    image: ghcr.io/sri-ln/planapi:${VERSION:-v0.1.0}
+    image: ghcr.io/sri-ln/planapi:${VERSION:-0.1.0}
     ports: ["8080:8080"]
     environment:
       ConnectionStrings__Redis: "redis:6379"
@@ -49,7 +49,7 @@ Then:
 docker compose up
 ```
 
-API at <http://localhost:8080>. Defaults to `v0.1.0`. Override with `VERSION=v0.2.0 docker compose up`.
+API at <http://localhost:8080>. Defaults to image tag `0.1.0`. Override with `VERSION=0.2.0 docker compose up`.
 
 If you've already cloned this repo, the same file ships as `docker-compose.ghcr.yml`:
 

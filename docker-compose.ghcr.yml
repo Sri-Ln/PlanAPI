@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/sri-ln/planapi:${VERSION:-v0.1.0}
+    image: ghcr.io/sri-ln/planapi:${VERSION:-0.1.0}
     container_name: planapi-api
     ports:
       - "8080:8080"
