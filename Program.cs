@@ -59,6 +59,12 @@ app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo, JsonSchema s
     return Results.Created($"/v1/plan/{objectId}", null);
 });
 
+app.MapGet("/v1/plan/{objectId}", async (string objectId, IPlanRepository repo) =>
+{
+    var plan = await repo.GetAsync(objectId);
+    return plan is null ? Results.NotFound() : Results.Ok(plan);
+});
+
 app.UseHttpsRedirection();
 
 app.Run();
