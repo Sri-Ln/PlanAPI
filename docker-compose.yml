@@ -1,0 +1,21 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: planapi-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+    image: planapi:dev
+    container_name: planapi-api
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__Redis: "redis:6379"
+      ASPNETCORE_URLS: "http://+:8080"
+    depends_on:
+      - redis
+    restart: unless-stopped
