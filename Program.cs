@@ -33,7 +33,7 @@ if (app.Environment.IsDevelopment())
 }
 
 
-app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo, JsonSchema schema) =>
+app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo, JsonSchema schema, HttpResponse response) =>
 {
     var result = schema.Evaluate(body.Deserialize<JsonElement>(), new EvaluationOptions { OutputFormat = OutputFormat.List });
     if (!result.IsValid)
@@ -56,7 +56,22 @@ app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo, JsonSchema s
         return Results.Conflict(new { error = $"plan '{objectId}' already exists" });
 
     await repo.SaveFlattenedAsync(PlanFlattener.Decompose(body));
+    response.Headers.ETag = ETag.Compute(body);
     return Results.Created($"/v1/plan/{objectId}", null);
+});
+
+app.MapGet("/v1/plan/{objectId}", async (string objectId, IPlanRepository repo, HttpRequest request, HttpResponse response) =>
+{
+    var plan = await repo.GetAsync(objectId);
+    if (plan is null) return Results.NotFound();
+
+    var etag = ETag.Compute(plan);
+    response.Headers.ETag = etag;
+
+    if (request.Headers.IfNoneMatch.Contains(etag))
+        return Results.StatusCode(StatusCodes.Status304NotModified);
+
+    return Results.Ok(plan);
 });
 
 app.UseHttpsRedirection();

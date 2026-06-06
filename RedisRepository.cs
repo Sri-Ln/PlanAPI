@@ -20,4 +20,13 @@ public class RedisRepository : IPlanRepository
         var writes = records.Select(kvp => _db.StringSetAsync(kvp.Key, kvp.Value.ToJsonString()));
         await Task.WhenAll(writes);
     }
+    
+    public Task<JsonObject?> GetAsync(string objectId) =>
+        PlanFlattener.AssembleAsync($"plan:{objectId}", ReadRawAsync);
+
+    private async Task<string?> ReadRawAsync(string key)
+    {
+        var value = await _db.StringGetAsync(key);
+        return value.HasValue ? value.ToString() : null;
+    }
 }
