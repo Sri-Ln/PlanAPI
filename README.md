@@ -40,6 +40,25 @@ Run the API:
 dotnet run
 ```
 
+## Running with Docker Compose
+
+Brings up Redis and the API together. The API listens on `http://localhost:8080`.
+
+```bash
+docker compose up --build
+```
+
+## Running the published image
+
+After a tagged release, a Linux container image is published to GitHub Container Registry:
+
+```bash
+docker run -p 8080:8080 -e ConnectionStrings__Redis=host.docker.internal:6379 \
+  ghcr.io/sri-ln/planapi:latest
+```
+
+(Requires a reachable Redis on the host; for a self-contained run, prefer `docker compose up`.)
+
 ## Data model
 
 A `plan` decomposes into 8 Redis records:
