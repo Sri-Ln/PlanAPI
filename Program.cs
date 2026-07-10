@@ -1,4 +1,5 @@
 using PlanApi;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 using System.Text.Json.Nodes;
@@ -22,6 +23,17 @@ builder.Services.AddSingleton(JsonSchema.FromFile(
 
 builder.Services.AddSingleton<IPlanRepository, RedisRepository>();
 
+// Resource-server auth: validate Google-issued ID tokens, never mint them.
+// Authority triggers OIDC discovery + JWKS fetch, so signing keys auto-rotate.
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = "https://accounts.google.com";
+        options.Audience = builder.Configuration["Google:ClientId"]
+            ?? throw new InvalidOperationException("Google:ClientId is not configured");
+    });
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
 
 _ = app.Services.GetRequiredService<IConnectionMultiplexer>();
@@ -32,8 +44,13 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
+app.UseAuthentication();
+app.UseAuthorization();
 
-app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo, JsonSchema schema, HttpResponse response) =>
+// All plan endpoints require a valid Bearer token; unauthenticated -> 401.
+var plan = app.MapGroup("/v1/plan").RequireAuthorization();
+
+plan.MapPost("", async (JsonNode body, IPlanRepository repo, JsonSchema schema, HttpResponse response) =>
 {
     var result = schema.Evaluate(body.Deserialize<JsonElement>(), new EvaluationOptions { OutputFormat = OutputFormat.List });
     if (!result.IsValid)
@@ -60,7 +77,7 @@ app.MapPost("/v1/plan", async (JsonNode body, IPlanRepository repo, JsonSchema s
     return Results.Created($"/v1/plan/{objectId}", null);
 });
 
-app.MapGet("/v1/plan/{objectId}", async (string objectId, IPlanRepository repo, HttpRequest request, HttpResponse response) =>
+plan.MapGet("/{objectId}", async (string objectId, IPlanRepository repo, HttpRequest request, HttpResponse response) =>
 {
     var plan = await repo.GetAsync(objectId);
     if (plan is null) return Results.NotFound();
@@ -74,7 +91,7 @@ app.MapGet("/v1/plan/{objectId}", async (string objectId, IPlanRepository repo, 
     return Results.Ok(plan);
 });
 
-app.MapDelete("/v1/plan/{objectId}", async (string objectId, IPlanRepository repo) =>
+plan.MapDelete("/{objectId}", async (string objectId, IPlanRepository repo) =>
 {
     var deleted = await repo.DeleteAsync(objectId);
     return deleted ? Results.NoContent() : Results.NotFound();
