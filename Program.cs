@@ -97,6 +97,43 @@ plan.MapDelete("/{objectId}", async (string objectId, IPlanRepository repo) =>
     return deleted ? Results.NoContent() : Results.NotFound();
 });
 
+plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanRepository repo, JsonSchema schema, HttpRequest request, HttpResponse response) =>
+{
+    var stored = await repo.GetAsync(objectId);
+    if (stored is null) return Results.NotFound();
+
+    // Conditional write: If-Match is mandatory ("update if not changed").
+    var ifMatch = request.Headers.IfMatch;
+    if (ifMatch.Count == 0)
+        return Results.StatusCode(StatusCodes.Status428PreconditionRequired);
+
+    var currentETag = ETag.Compute(stored);
+    if (!ifMatch.Contains("*") && !ifMatch.Contains(currentETag))
+        return Results.StatusCode(StatusCodes.Status412PreconditionFailed);
+
+    // Merge the partial body, then validate the *result* (the body itself is partial).
+    var merged = PlanMerger.Merge(stored, body.AsObject());
+
+    var result = schema.Evaluate(merged.Deserialize<JsonElement>(), new EvaluationOptions { OutputFormat = OutputFormat.List });
+    if (!result.IsValid)
+    {
+        var errors = result.Details
+            .Where(d => d.Errors is not null && d.Errors.Count > 0)
+            .SelectMany(d => d.Errors!.Select(e => new
+            {
+                path = d.InstanceLocation.ToString(),
+                keyword = e.Key,
+                message = e.Value
+            }))
+            .ToList();
+        return Results.BadRequest(new { errors });
+    }
+
+    await repo.SaveFlattenedAsync(PlanFlattener.Decompose(merged));
+    response.Headers.ETag = ETag.Compute(merged);
+    return Results.Ok(merged);
+});
+
 
 app.UseHttpsRedirection();
 
