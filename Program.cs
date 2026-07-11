@@ -99,6 +99,10 @@ plan.MapDelete("/{objectId}", async (string objectId, IPlanRepository repo) =>
 
 plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanRepository repo, JsonSchema schema, HttpRequest request, HttpResponse response) =>
 {
+    // objectId is the resource identity: reject any attempt to change it via the body.
+    if (body["objectId"] is JsonNode bodyId && bodyId.ToString() != objectId)
+        return Results.BadRequest(new { error = "objectId is immutable and cannot be changed via PATCH" });
+
     var stored = await repo.GetAsync(objectId);
     if (stored is null) return Results.NotFound();
 
