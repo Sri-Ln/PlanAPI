@@ -19,3 +19,36 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+  
+  Elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+    environment:
+      - discovery.type=single-node        # one node, no cluster election
+      - xpack.security.enabled=false       # disable auth for local demo
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m     # cap heap so it doesn't eat your machine
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  Kibana:
+    image: docker.elastic.co/kibana/kibana:9.4.4
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+        Elasticsearch:
+          condition: service_healthy         # wait for ES to be ready first
+
+  RabbitMQ:
+    image: rabbitmq:3-management            # -management gives you the web UI
+    ports:
+      - "5672:5672"                         # broker port (your app connects here)
+      - "15672:15672"                       # management UI (browser: localhost:15672)
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
