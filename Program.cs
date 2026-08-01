@@ -1,4 +1,5 @@
 using PlanApi;
+using PlanApi.Indexing;
 using PlanApi.Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Scalar.AspNetCore;
@@ -29,6 +30,10 @@ builder.Services.AddSingleton<IPlanRepository, RedisRepository>();
 builder.Services.AddSingleton<RabbitPublisher>();
 builder.Services.AddSingleton<IPlanPublisher>(sp => sp.GetRequiredService<RabbitPublisher>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RabbitPublisher>());
+
+// The consumer side: reads the queue and writes the derived documents into Elasticsearch.
+builder.Services.AddSingleton<IPlanIndexer, PlanIndexer>();
+builder.Services.AddHostedService<IndexerService>();
 
 // Resource-server auth: validate Google-issued ID tokens, never mint them.
 // Authority triggers OIDC discovery + JWKS fetch, so signing keys auto-rotate.
