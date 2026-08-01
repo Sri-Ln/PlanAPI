@@ -1,4 +1,6 @@
 using PlanApi;
+using PlanApi.Indexing;
+using PlanApi.Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
@@ -22,6 +24,16 @@ builder.Services.AddSingleton(JsonSchema.FromFile(
     Path.Combine(builder.Environment.ContentRootPath, "schema.json")));
 
 builder.Services.AddSingleton<IPlanRepository, RedisRepository>();
+
+// One RabbitMQ connection for the process, not one per request. Registered three ways so that
+// the interface and the startup hook resolve to the *same* instance rather than two publishers.
+builder.Services.AddSingleton<RabbitPublisher>();
+builder.Services.AddSingleton<IPlanPublisher>(sp => sp.GetRequiredService<RabbitPublisher>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RabbitPublisher>());
+
+// The consumer side: reads the queue and writes the derived documents into Elasticsearch.
+builder.Services.AddSingleton<IPlanIndexer, PlanIndexer>();
+builder.Services.AddHostedService<IndexerService>();
 
 // Resource-server auth: validate Google-issued ID tokens, never mint them.
 // Authority triggers OIDC discovery + JWKS fetch, so signing keys auto-rotate.
@@ -50,7 +62,7 @@ app.UseAuthorization();
 // All plan endpoints require a valid Bearer token; unauthenticated -> 401.
 var plan = app.MapGroup("/v1/plan").RequireAuthorization();
 
-plan.MapPost("", async (JsonNode body, IPlanRepository repo, JsonSchema schema, HttpResponse response) =>
+plan.MapPost("", async (JsonNode body, IPlanRepository repo, JsonSchema schema, IPlanPublisher publisher, HttpResponse response) =>
 {
     var result = schema.Evaluate(body.Deserialize<JsonElement>(), new EvaluationOptions { OutputFormat = OutputFormat.List });
     if (!result.IsValid)
@@ -73,6 +85,10 @@ plan.MapPost("", async (JsonNode body, IPlanRepository repo, JsonSchema schema, 
         return Results.Conflict(new { error = $"plan '{objectId}' already exists" });
 
     await repo.SaveFlattenedAsync(PlanFlattener.Decompose(body));
+
+    // Hook: Redis has committed, so tell the indexer. Never throws — see RabbitPublisher.
+    await publisher.PublishAsync(PlanMessage.Create(objectId, body.AsObject()));
+
     response.Headers.ETag = ETag.Compute(body);
     return Results.Created($"/v1/plan/{objectId}", null);
 });
@@ -91,13 +107,22 @@ plan.MapGet("/{objectId}", async (string objectId, IPlanRepository repo, HttpReq
     return Results.Ok(plan);
 });
 
-plan.MapDelete("/{objectId}", async (string objectId, IPlanRepository repo) =>
+plan.MapDelete("/{objectId}", async (string objectId, IPlanRepository repo, IPlanPublisher publisher) =>
 {
+    // Read the tree BEFORE deleting it: the descendant ids only exist inside it, and
+    // repo.DeleteAsync is about to remove every key we would need to discover them.
+    var tree = await repo.GetAsync(objectId);
+
     var deleted = await repo.DeleteAsync(objectId);
-    return deleted ? Results.NoContent() : Results.NotFound();
+    if (!deleted) return Results.NotFound();
+
+    if (tree is not null)
+        await publisher.PublishAsync(PlanMessage.Delete(objectId, EsFlattener.CollectIds(tree)));
+
+    return Results.NoContent();
 });
 
-plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanRepository repo, JsonSchema schema, HttpRequest request, HttpResponse response) =>
+plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanRepository repo, JsonSchema schema, IPlanPublisher publisher, HttpRequest request, HttpResponse response) =>
 {
     // objectId is the resource identity: reject any attempt to change it via the body.
     if (body["objectId"] is JsonNode bodyId && bodyId.ToString() != objectId)
@@ -134,6 +159,11 @@ plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanReposit
     }
 
     await repo.SaveFlattenedAsync(PlanFlattener.Decompose(merged));
+
+    // Hook: publish the *merged* plan, not the partial patch body. The consumer re-flattens
+    // the whole tree and upserts every document by id, so the index cannot drift from Redis.
+    await publisher.PublishAsync(PlanMessage.Update(objectId, merged));
+
     response.Headers.ETag = ETag.Compute(merged);
     return Results.Ok(merged);
 });
