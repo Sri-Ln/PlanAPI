@@ -107,10 +107,19 @@ plan.MapGet("/{objectId}", async (string objectId, IPlanRepository repo, HttpReq
     return Results.Ok(plan);
 });
 
-plan.MapDelete("/{objectId}", async (string objectId, IPlanRepository repo) =>
+plan.MapDelete("/{objectId}", async (string objectId, IPlanRepository repo, IPlanPublisher publisher) =>
 {
+    // Read the tree BEFORE deleting it: the descendant ids only exist inside it, and
+    // repo.DeleteAsync is about to remove every key we would need to discover them.
+    var tree = await repo.GetAsync(objectId);
+
     var deleted = await repo.DeleteAsync(objectId);
-    return deleted ? Results.NoContent() : Results.NotFound();
+    if (!deleted) return Results.NotFound();
+
+    if (tree is not null)
+        await publisher.PublishAsync(PlanMessage.Delete(objectId, EsFlattener.CollectIds(tree)));
+
+    return Results.NoContent();
 });
 
 plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanRepository repo, JsonSchema schema, IPlanPublisher publisher, HttpRequest request, HttpResponse response) =>
