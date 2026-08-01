@@ -16,6 +16,7 @@ services:
     environment:
       ConnectionStrings__Redis: "redis:6379"
       ASPNETCORE_URLS: "http://+:8080"
+      RabbitMq__HostName: "rabbitmq"        # container DNS name, not localhost
     depends_on:
       - redis
     restart: unless-stopped

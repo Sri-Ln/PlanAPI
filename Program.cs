@@ -1,4 +1,5 @@
 using PlanApi;
+using PlanApi.Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
@@ -22,6 +23,12 @@ builder.Services.AddSingleton(JsonSchema.FromFile(
     Path.Combine(builder.Environment.ContentRootPath, "schema.json")));
 
 builder.Services.AddSingleton<IPlanRepository, RedisRepository>();
+
+// One RabbitMQ connection for the process, not one per request. Registered three ways so that
+// the interface and the startup hook resolve to the *same* instance rather than two publishers.
+builder.Services.AddSingleton<RabbitPublisher>();
+builder.Services.AddSingleton<IPlanPublisher>(sp => sp.GetRequiredService<RabbitPublisher>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RabbitPublisher>());
 
 // Resource-server auth: validate Google-issued ID tokens, never mint them.
 // Authority triggers OIDC discovery + JWKS fetch, so signing keys auto-rotate.
@@ -50,7 +57,7 @@ app.UseAuthorization();
 // All plan endpoints require a valid Bearer token; unauthenticated -> 401.
 var plan = app.MapGroup("/v1/plan").RequireAuthorization();
 
-plan.MapPost("", async (JsonNode body, IPlanRepository repo, JsonSchema schema, HttpResponse response) =>
+plan.MapPost("", async (JsonNode body, IPlanRepository repo, JsonSchema schema, IPlanPublisher publisher, HttpResponse response) =>
 {
     var result = schema.Evaluate(body.Deserialize<JsonElement>(), new EvaluationOptions { OutputFormat = OutputFormat.List });
     if (!result.IsValid)
@@ -73,6 +80,10 @@ plan.MapPost("", async (JsonNode body, IPlanRepository repo, JsonSchema schema, 
         return Results.Conflict(new { error = $"plan '{objectId}' already exists" });
 
     await repo.SaveFlattenedAsync(PlanFlattener.Decompose(body));
+
+    // Hook: Redis has committed, so tell the indexer. Never throws — see RabbitPublisher.
+    await publisher.PublishAsync(PlanMessage.Create(objectId, body.AsObject()));
+
     response.Headers.ETag = ETag.Compute(body);
     return Results.Created($"/v1/plan/{objectId}", null);
 });
