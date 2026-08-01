@@ -113,7 +113,7 @@ plan.MapDelete("/{objectId}", async (string objectId, IPlanRepository repo) =>
     return deleted ? Results.NoContent() : Results.NotFound();
 });
 
-plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanRepository repo, JsonSchema schema, HttpRequest request, HttpResponse response) =>
+plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanRepository repo, JsonSchema schema, IPlanPublisher publisher, HttpRequest request, HttpResponse response) =>
 {
     // objectId is the resource identity: reject any attempt to change it via the body.
     if (body["objectId"] is JsonNode bodyId && bodyId.ToString() != objectId)
@@ -150,6 +150,11 @@ plan.MapPatch("/{objectId}", async (string objectId, JsonNode body, IPlanReposit
     }
 
     await repo.SaveFlattenedAsync(PlanFlattener.Decompose(merged));
+
+    // Hook: publish the *merged* plan, not the partial patch body. The consumer re-flattens
+    // the whole tree and upserts every document by id, so the index cannot drift from Redis.
+    await publisher.PublishAsync(PlanMessage.Update(objectId, merged));
+
     response.Headers.ETag = ETag.Compute(merged);
     return Results.Ok(merged);
 });
