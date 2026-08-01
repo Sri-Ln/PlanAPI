@@ -6,14 +6,51 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
+  Elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  Kibana:
+    image: docker.elastic.co/kibana/kibana:9.4.4
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      Elasticsearch:
+        condition: service_healthy
+
+  RabbitMQ:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+
   api:
-    image: ghcr.io/sri-ln/planapi:${VERSION:-0.2.0}
+    image: ghcr.io/sri-ln/planapi:${VERSION:-0.3.0}
     container_name: planapi-api
     ports:
       - "8080:8080"
     environment:
       ConnectionStrings__Redis: "redis:6379"
       ASPNETCORE_URLS: "http://+:8080"
+      RabbitMq__HostName: "rabbitmq"
+      Elasticsearch__Uri: "http://elasticsearch:9200"
     depends_on:
       - redis
+      - RabbitMQ
+      - Elasticsearch
     restart: unless-stopped

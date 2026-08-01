@@ -128,30 +128,14 @@ API at <http://localhost:8080>. Because the endpoints are secured, call them wit
 
 Save as `compose.yml` in an empty folder:
 
-```yaml
-services:
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-  api:
-    image: ghcr.io/sri-ln/planapi:${VERSION:-0.2.0}
-    ports: ["8080:8080"]
-    environment:
-      ConnectionStrings__Redis: "redis:6379"
-    depends_on: [redis]
-```
+The published image needs Redis, RabbitMQ, and Elasticsearch alongside it. The full file ships in this repo as `docker-compose.ghcr.yml` — copy it into an empty folder as `compose.yml`, or if you've cloned the repo just run it directly:
 
 ```bash
-docker compose up            # defaults to image tag 0.2.0; override with VERSION=x.y.z
+docker compose -f docker-compose.ghcr.yml up   # defaults to image tag 0.3.0
+VERSION=0.2.0 docker compose -f docker-compose.ghcr.yml up   # override the tag
 ```
 
-This runs the API against Redis only. Tag `0.2.0` predates search indexing; to exercise that, add the `Elasticsearch`, `Kibana`, and `RabbitMQ` services from `docker-compose.yml` along with the `RabbitMq__HostName` and `Elasticsearch__Uri` environment variables.
-
-If you've cloned the repo, the same file ships as `docker-compose.ghcr.yml`:
-
-```bash
-docker compose -f docker-compose.ghcr.yml up
-```
+Then create the `demo` index once (see [Creating the index](#creating-the-index)). Note that tag `0.2.0` and earlier predate search indexing and will ignore the RabbitMQ and Elasticsearch settings.
 
 ## Run from source with .NET
 
