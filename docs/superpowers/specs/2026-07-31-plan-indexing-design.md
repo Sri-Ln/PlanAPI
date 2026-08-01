@@ -122,13 +122,44 @@ compose service names work as-is.
 
 All four queries must return real hits against `demo` after indexing `usecase.json`:
 
-1. `has_parent` with `parent_type: plan` — children of the plan.
-2. `has_parent` with `parent_type: linkedPlanServices` — grandchildren. **The canary:**
-   an empty result here means a routing or join-name bug.
-3. `has_child` with `type: planServiceCostShares` and `range: copay >= 1`.
-4. The same with `copay >= 120`.
+1. `has_parent` with `parent_type: plan` — children of the plan. → **3** hits
+2. `has_parent` with `parent_type: linkedPlanServices` — grandchildren. → **4** hits
+3. `has_child` with `type: planServiceCostShares` and `range: copay >= 1`. → **1** hit
+4. The same with `copay >= 120`. → **1** hit
 
-The sample data satisfies these: `planserviceCostShares` copays are 0 and 175.
+The sample data satisfies these: `planserviceCostShares` copays are 0 and 175. Queries 3 and 4
+return the *parent* `linkedPlanServices`, not the cost-share document — `has_child` matches
+parents. Query 3 returns 1 rather than 2 because the other service's copay is 0.
+
+### What these queries do and do not prove
+
+`demo` has **one shard**. Every document therefore lands on the same shard no matter what
+routing value is used, so all four queries pass under *any* consistent routing. They verify the
+join relation names; they do **not** verify routing. The "grandchildren canary" is a weaker
+signal than it appears on a single-shard index.
+
+Two things were verified separately:
+
+- Routing is mandatory at index time. Indexing a child document without routing is rejected with
+  `[routing] is missing for join field [plan_join]` (HTTP 400), so a missing value cannot pass
+  silently. Only a *wrong* value can.
+- Routing correctness was proven by indexing the same tree into two 3-shard indices with the same
+  mapping — once with `routing = root plan id` (what `EsFlattener` produces) and once with the
+  plausible mistake `routing = each document's own id`:
+
+  | Query | root-plan routing | own-id routing |
+  |---|---|---|
+  | 1. children of `plan` | 3 | 1 |
+  | 2. grandchildren | **4** | **0** |
+  | 3. `has_child` copay >= 1 | 1 | 0 |
+  | 4. `has_child` copay >= 120 | 1 | 0 |
+
+  Both bulk writes reported `errors=false`. The wrong routing produced zero hits with no error,
+  warning, or failed shard — confirming that a routing bug is silent, and that this
+  implementation is on the correct side of it.
+
+Reproduce that comparison to answer "how do you know routing is right?" — the single-shard
+`demo` index cannot answer it.
 
 ## Build order
 
@@ -140,3 +171,23 @@ Each step stops for manual verification before the next begins.
 3. Consumer and indexer — POST, then run all four acceptance queries.
 4. PATCH hook — change a copay and watch it reach the index.
 5. DELETE hook — cascade removal from both stores.
+
+## Outcome
+
+All five steps are implemented and verified end to end. Notes from the build:
+
+- The DELETE hook must read the tree **before** `repo.DeleteAsync`, because the descendant ids
+  exist only inside the tree that call destroys.
+- `RabbitPublisher` is registered as a concrete singleton and resolved through for both
+  `IPlanPublisher` and `IHostedService`. Registering it twice by type would construct two
+  instances holding two connections.
+- The queue is declared at startup rather than on first publish, so an empty queue in the
+  management UI means "nothing published yet" and never "publisher broken". This ambiguity cost
+  real debugging time before the change.
+- `PlanMessage` round-trips through camelCase JSON with `docIds` intact. Had that list
+  deserialized to null, `DeletePlanAsync` would have deleted nothing and still acked — a silent
+  no-op worth guarding.
+
+Demo 2 behaviour is unchanged. `Program.cs` gains a DI block, one parameter per endpoint lambda,
+and three publish hooks; `RedisRepository.cs`, `PlanFlattener.cs`, `PlanMerger.cs`, `ETag.cs`,
+and `schema.json` are untouched, and the GET endpoint is unmodified.
